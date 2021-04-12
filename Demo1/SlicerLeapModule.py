@@ -64,7 +64,7 @@ class SlicerLeapModuleWidget(object):
     reloadFormLayout.addWidget(self.reloadAndTestButton)
     self.reloadAndTestButton.connect('clicked()', self.onReloadAndTest)
 
-    #
+     #
     # Parameters Area
     #
     parametersCollapsibleButton = ctk.ctkCollapsibleButton()
@@ -85,6 +85,7 @@ class SlicerLeapModuleWidget(object):
 
     # Add vertical spacer
     self.layout.addStretch(1)
+    
     
   def cleanup(self):
     pass
@@ -164,6 +165,7 @@ class SlicerLeapModuleLogic(object):
     self.LeapController = Leap.Controller()
     self.enableAutoCreateTransforms = False    
     self.onFrame()
+    print('Initialized Leap')
       
   def setEnableAutoCreateTransforms(self, enable):
     self.enableAutoCreateTransforms = enable
@@ -172,18 +174,22 @@ class SlicerLeapModuleLogic(object):
     
     transformName = "Hand%iFinger%i" % (handIndex+1,fingerIndex+1) # +1 because to have 1-based indexes for the hands and fingers
     print(transformName)
-    transform = slicer.util.getNode(transformName)
 
-    # Create the transform if does not exist yet
-    if not transform :
+    try:
+      transform = slicer.util.getNode(transformName)
+    except:
       if self.enableAutoCreateTransforms :
-        # Create the missing transform
+            # Create the missing transform
         transform = slicer.vtkMRMLLinearTransformNode()
         transform.SetName(transformName)
         slicer.mrmlScene.AddNode(transform)
+        print('Creating')
       else :
+        print('Ignoring')
         # No transform exist, so just ignore the finger
         return
+    # Create the transform if does not exist yet
+      
     
     newTransform = vtk.vtkTransform()
     # Reorder and reorient to match the LeapMotion's coordinate system with RAS coordinate system

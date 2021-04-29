@@ -4,13 +4,14 @@ set(MODULE_NAME SlicerLeapModule)
 #-----------------------------------------------------------------------------
 set(MODULE_PYTHON_SCRIPTS
   ${MODULE_NAME}.py
-  Leap.py
-  _LeapPython.pyd
   )
 
 set(MODULE_PYTHON_RESOURCES
   Resources/Icons/${MODULE_NAME}.png
-  LeapC.dll
+  Leap/LeapC.dll
+  Leap/Leap.py
+  Leap/_LeapPython.pyd
+  Leap/__init__.py
   )
 
 #-----------------------------------------------------------------------------

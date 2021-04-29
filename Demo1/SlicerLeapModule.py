@@ -161,7 +161,7 @@ class SlicerLeapModuleLogic(object):
   """
   
   def __init__(self):
-    import Leap
+    import Leap.Leap as Leap
     self.LeapController = Leap.Controller()
     self.enableAutoCreateTransforms = False    
     self.onFrame()

@@ -170,9 +170,11 @@ class SlicerLeapModuleLogic(object):
   def setEnableAutoCreateTransforms(self, enable):
     self.enableAutoCreateTransforms = enable
 
-  def setTransform(self, handIndex, fingerIndex, fingerTipPosition):
+  def setTransform(self, handIndex, fingerIndex, fingerTipPosition, direction):
     
     transformName = "Hand%iFinger%i" % (handIndex+1,fingerIndex+1) # +1 because to have 1-based indexes for the hands and fingers
+    if fingerIndex == -1:
+      transformName = "Hand%iPalm" % (handIndex+1)
     print(transformName)
 
     try:
@@ -193,16 +195,56 @@ class SlicerLeapModuleLogic(object):
     
     newTransform = vtk.vtkTransform()
     # Reorder and reorient to match the LeapMotion's coordinate system with RAS coordinate system
-    newTransform.Translate(-fingerTipPosition[0], fingerTipPosition[2], fingerTipPosition[1])
+    # newTransform.Translate(-fingerTipPosition[0], fingerTipPosition[2], fingerTipPosition[1])
+
+    matrix = self.getRotationFromDirection(direction)
+    newTransform.SetMatrix(matrix)
+
     transform.SetMatrixTransformToParent(newTransform.GetMatrix())
+    
+  
+  def getRotationFromDirection(self, direction, up=[0,0,1]):
+    directionVector = vtk.vtkVector3d()
+    directionVector[0] = direction[0]
+    directionVector[1] = direction[1]
+    directionVector[2] = direction[2]
+    directionVector.Normalize()
+    upVector = vtk.vtkVector3d(up)
+    upVector.Normalize()
+    normalVector = directionVector.Cross(upVector)
+    normalVector.Normalize()
+
+    upVector = normalVector.Cross(directionVector)
+    directionVector.Normalize()
+
+    #Create matrix
+    matrix = vtk.vtkMatrix4x4()
+    matrix.SetElement(0,0,normalVector[0])
+    matrix.SetElement(1,0,normalVector[1])
+    matrix.SetElement(2,0,normalVector[2])
+
+    matrix.SetElement(0,1,upVector[0])
+    matrix.SetElement(1,1,upVector[1])
+    matrix.SetElement(2,1,upVector[2])
+
+    matrix.SetElement(0,2,directionVector[0])
+    matrix.SetElement(1,2,directionVector[1])
+    matrix.SetElement(2,2,directionVector[2])
+
+    return matrix
+
+
   
   def onFrame(self):
     # Get the most recent frame
     frame = self.LeapController.frame()
 
     for handIndex, hand in enumerate(frame.hands) :
+      self.setTransform(handIndex, -1, hand.palm_position, hand.palm_normal)    
       for fingerIndex, finger in enumerate(hand.fingers) :
-        self.setTransform(handIndex, fingerIndex, finger.tip_position)
+        self.setTransform(handIndex, fingerIndex, finger.tip_position, finger.direction)
+        # print(finger.direction)
+        # print(self.getRotationFromDirection(finger.direction))
     
     # Theoretically Leap could periodically call a callback function, but due to some reason it does not
     # appear to work, so just poll with a timer instead.

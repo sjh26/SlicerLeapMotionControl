@@ -38,7 +38,7 @@ class SlicerLeapModuleWidget(object):
 
   def setup(self):
     # Instantiate and connect widgets ...
-
+    self.logic = SlicerLeapModuleLogic()
     #
     # Reload and Test area
     #
@@ -91,8 +91,7 @@ class SlicerLeapModuleWidget(object):
     pass
 
   def setEnableAutoCreateTransforms(self, enable):
-    logic = SlicerLeapModuleLogic()
-    logic.setEnableAutoCreateTransforms(enable)
+    self.logic.setEnableAutoCreateTransforms(enable)
   
   def onReload(self,moduleName="SlicerLeapModule"):
     """Generic reload method for any scripted module.
@@ -163,9 +162,13 @@ class SlicerLeapModuleLogic(object):
   def __init__(self):
     import Leap.Leap as Leap
     self.LeapController = Leap.Controller()
-    self.enableAutoCreateTransforms = False    
+    self.enableAutoCreateTransforms = True    
+    self.cameraControllerAttaced = False
+    self.palmControlOn = False  #slicer.modules.slicerleapmodule.widgetRepresentation().self().logic.palmControlOn = True
     self.onFrame()
     print('Initialized Leap')
+    
+
       
   def setEnableAutoCreateTransforms(self, enable):
     self.enableAutoCreateTransforms = enable
@@ -175,7 +178,9 @@ class SlicerLeapModuleLogic(object):
     transformName = "Hand%iFinger%i" % (handIndex+1,fingerIndex+1) # +1 because to have 1-based indexes for the hands and fingers
     if fingerIndex == -1:
       transformName = "Hand%iPalm" % (handIndex+1)
-    print(transformName)
+    # print(transformName)
+
+    
 
     try:
       transform = slicer.util.getNode(transformName)
@@ -186,6 +191,8 @@ class SlicerLeapModuleLogic(object):
         transform.SetName(transformName)
         slicer.mrmlScene.AddNode(transform)
         print('Creating')
+        
+          
       else :
         print('Ignoring')
         # No transform exist, so just ignore the finger
@@ -239,12 +246,31 @@ class SlicerLeapModuleLogic(object):
     # Get the most recent frame
     frame = self.LeapController.frame()
 
+
     for handIndex, hand in enumerate(frame.hands) :
       self.setTransform(handIndex, -1, hand.palm_position, hand.palm_normal)    
-      for fingerIndex, finger in enumerate(hand.fingers) :
-        self.setTransform(handIndex, fingerIndex, finger.tip_position, finger.direction)
-        # print(finger.direction)
-        # print(self.getRotationFromDirection(finger.direction))
+      # for fingerIndex, finger in enumerate(hand.fingers) :
+      #   self.setTransform(handIndex, fingerIndex, finger.tip_position, finger.direction)
+      #   # print(finger.direction)
+      #   # print(self.getRotationFromDirection(finger.direction))
+
+    
+    try:
+      camera = slicer.util.getNode('Camera')
+      transform = slicer.util.getNode('Hand1Palm')
+      if self.palmControlOn and not self.cameraControllerAttaced:
+        print('Camera attached')        
+        camera.SetAndObserveTransformNodeID(transform.GetID())
+        self.cameraControllerAttaced = True
+
+      if not self.palmControlOn and self.cameraControllerAttaced:
+        camera.SetAndObserveTransformNodeID(None)
+        print('Camera detached')
+        self.cameraControllerAttaced = False
+
+      self.palmPresentInLastFrame = self.palmPresentInFrame
+    except:
+      pass
     
     # Theoretically Leap could periodically call a callback function, but due to some reason it does not
     # appear to work, so just poll with a timer instead.

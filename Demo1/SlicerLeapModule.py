@@ -173,7 +173,7 @@ class SlicerLeapModuleLogic(object):
   def setEnableAutoCreateTransforms(self, enable):
     self.enableAutoCreateTransforms = enable
 
-  def setTransform(self, handIndex, fingerIndex, fingerTipPosition, direction):
+  def setTransform(self, handIndex, fingerIndex, fingerTipPosition, direction, grab=False):
     
     transformName = "Hand%iFinger%i" % (handIndex+1,fingerIndex+1) # +1 because to have 1-based indexes for the hands and fingers
     if fingerIndex == -1:
@@ -198,23 +198,25 @@ class SlicerLeapModuleLogic(object):
         # No transform exist, so just ignore the finger
         return
     # Create the transform if does not exist yet
-      
-    
-    newTransform = vtk.vtkTransform()
-    # Reorder and reorient to match the LeapMotion's coordinate system with RAS coordinate system
-    # newTransform.Translate(-fingerTipPosition[0], fingerTipPosition[2], fingerTipPosition[1])
 
-    matrix = self.getRotationFromDirection(direction)
-    newTransform.SetMatrix(matrix)
+    newTransform = vtk.vtkTransform()
+ 
+    if grab:
+      # Reorder and reorient to match the LeapMotion's coordinate system with RAS coordinate system
+      newTransform.Translate(fingerTipPosition[0], -fingerTipPosition[2], fingerTipPosition[1])
+    else:
+
+      matrix = self.getRotationFromDirection(direction)
+      newTransform.SetMatrix(matrix)
 
     transform.SetMatrixTransformToParent(newTransform.GetMatrix())
     
   
-  def getRotationFromDirection(self, direction, up=[0,0,1]):
+  def getRotationFromDirection(self, direction, up=[0,-1,0]):
     directionVector = vtk.vtkVector3d()
-    directionVector[0] = direction[0]
-    directionVector[1] = direction[1]
-    directionVector[2] = direction[2]
+    directionVector[0] = direction[1]
+    directionVector[1] = -direction[2]
+    directionVector[2] = -direction[0]
     directionVector.Normalize()
     upVector = vtk.vtkVector3d(up)
     upVector.Normalize()
@@ -226,17 +228,17 @@ class SlicerLeapModuleLogic(object):
 
     #Create matrix
     matrix = vtk.vtkMatrix4x4()
-    matrix.SetElement(0,0,normalVector[0])
-    matrix.SetElement(1,0,normalVector[1])
-    matrix.SetElement(2,0,normalVector[2])
+    matrix.SetElement(0,0,directionVector[0])
+    matrix.SetElement(1,0,directionVector[1])
+    matrix.SetElement(2,0,directionVector[2])
 
     matrix.SetElement(0,1,upVector[0])
     matrix.SetElement(1,1,upVector[1])
     matrix.SetElement(2,1,upVector[2])
 
-    matrix.SetElement(0,2,directionVector[0])
-    matrix.SetElement(1,2,directionVector[1])
-    matrix.SetElement(2,2,directionVector[2])
+    matrix.SetElement(0,2,normalVector[0])
+    matrix.SetElement(1,2,normalVector[1])
+    matrix.SetElement(2,2,normalVector[2])
 
     return matrix
 
@@ -248,7 +250,16 @@ class SlicerLeapModuleLogic(object):
 
 
     for handIndex, hand in enumerate(frame.hands) :
-      self.setTransform(handIndex, -1, hand.palm_position, hand.palm_normal)    
+      grab = False
+      if hand.grab_strength > 0.8:
+        print("Grab")
+        grab = True
+      elif hand.pinch_strength > 0.8: 
+        print("Pinch") 
+      
+      self.setTransform(handIndex, -1, hand.palm_position, hand.palm_normal, grab) 
+      
+      
       # for fingerIndex, finger in enumerate(hand.fingers) :
       #   self.setTransform(handIndex, fingerIndex, finger.tip_position, finger.direction)
       #   # print(finger.direction)

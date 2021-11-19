@@ -83,6 +83,16 @@ class SlicerLeapModuleWidget(object):
     parametersFormLayout.addRow("Auto-create transforms", self.enableAutoCreateTransformsCheckBox)
     self.enableAutoCreateTransformsCheckBox.connect('stateChanged(int)', self.setEnableAutoCreateTransforms)
 
+    self.calibrateButton = qt.QPushButton('Calibrate Palm Position')
+    parametersFormLayout.addRow("Click to calibrate", self.calibrateButton)
+    self.calibrateButton.clicked.connect(self.logic.calibratePalm)
+
+    self.palmControlCheckBox = qt.QCheckBox()
+    self.palmControlCheckBox.checked = 0
+    parametersFormLayout.addRow("Enable palm camera control", self.palmControlCheckBox)
+    self.palmControlCheckBox.connect('stateChanged(int)', self.setPalmControl)
+    
+
     # Add vertical spacer
     self.layout.addStretch(1)
     
@@ -90,6 +100,11 @@ class SlicerLeapModuleWidget(object):
   def cleanup(self):
     pass
 
+  def setPalmControl(self,enable):
+    if enable:
+      self.logic.calibratePalm()
+    self.logic.palmControlOn = enable
+  
   def setEnableAutoCreateTransforms(self, enable):
     self.logic.setEnableAutoCreateTransforms(enable)
   
@@ -163,9 +178,12 @@ class SlicerLeapModuleLogic(object):
     import Leap.Leap as Leap
     self.LeapController = Leap.Controller()
     self.enableAutoCreateTransforms = True    
-    self.cameraControllerAttaced = False
+    self.cameraControllerAttached = False
     self.palmControlOn = False  #slicer.modules.slicerleapmodule.widgetRepresentation().self().logic.palmControlOn = True
     self.onFrame()
+    self.grabbed = False
+    self.calibrated = False
+    self.calibrationInProgress = False
     print('Initialized Leap')
     
 
@@ -173,7 +191,7 @@ class SlicerLeapModuleLogic(object):
   def setEnableAutoCreateTransforms(self, enable):
     self.enableAutoCreateTransforms = enable
 
-  def setTransform(self, handIndex, fingerIndex, fingerTipPosition, direction, grab=False):
+  def setTransform(self, handIndex, fingerIndex, fingerTipPosition, direction):
     
     transformName = "Hand%iFinger%i" % (handIndex+1,fingerIndex+1) # +1 because to have 1-based indexes for the hands and fingers
     if fingerIndex == -1:
@@ -183,14 +201,33 @@ class SlicerLeapModuleLogic(object):
     
 
     try:
-      transform = slicer.util.getNode(transformName)
+      transformP = slicer.util.getNode(transformName+"Position")
     except:
       if self.enableAutoCreateTransforms :
             # Create the missing transform
-        transform = slicer.vtkMRMLLinearTransformNode()
-        transform.SetName(transformName)
-        slicer.mrmlScene.AddNode(transform)
+        transformP = slicer.vtkMRMLLinearTransformNode()
+        transformP.SetName(transformName+"Position")
+        slicer.mrmlScene.AddNode(transformP)
         print('Creating')
+
+    try:
+      transformO = slicer.util.getNode(transformName+"Orientation")
+    except:
+      if self.enableAutoCreateTransforms :
+            # Create the missing transform
+        transformO = slicer.vtkMRMLLinearTransformNode()
+        transformO.SetName(transformName+"Orientation")
+        slicer.mrmlScene.AddNode(transformO)
+        transformO.SetAndObserveTransformNodeID(transformP.GetID())
+        print('Creating')
+
+      try:
+        compositedNode = slicer.util.getNode('Hand1PalmComposited')
+      except:
+        compositedNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLLinearTransformNode', 'Hand1PalmComposited')
+        compositedNode.SetAndObserveTransformNodeID(transformO.GetID())
+        compositedNode.CreateDefaultDisplayNodes()
+        # compositedNode.GetDisplayNode().SetEditorVisibility(True)
         
           
       else :
@@ -199,24 +236,82 @@ class SlicerLeapModuleLogic(object):
         return
     # Create the transform if does not exist yet
 
-    newTransform = vtk.vtkTransform()
+    newTransformPosition = vtk.vtkTransform()
+    newTransformOrientation = vtk.vtkTransform()
  
-    if grab:
       # Reorder and reorient to match the LeapMotion's coordinate system with RAS coordinate system
-      newTransform.Translate(fingerTipPosition[0], -fingerTipPosition[2], fingerTipPosition[1])
+    newTransformPosition.Translate(fingerTipPosition[0], -fingerTipPosition[2], fingerTipPosition[1])
+  
+
+    matrix = self.getRotationFromDirection(direction)
+    newTransformOrientation.SetMatrix(matrix)
+
+    # grab both when calibration
+    if self.calibrationInProgress:
+      transformP.SetMatrixTransformToParent(newTransformPosition.GetMatrix())
+      transformO.SetMatrixTransformToParent(newTransformOrientation.GetMatrix())
+      return
+
+
+    if self.grabbed:
+      transformP.SetMatrixTransformToParent(newTransformPosition.GetMatrix())
     else:
+      transformO.SetMatrixTransformToParent(newTransformOrientation.GetMatrix())
 
-      matrix = self.getRotationFromDirection(direction)
-      newTransform.SetMatrix(matrix)
+    
 
-    transform.SetMatrixTransformToParent(newTransform.GetMatrix())
+  def cloneNode(self, inputNode, outputNodeName):
+    shNode = slicer.vtkMRMLSubjectHierarchyNode.GetSubjectHierarchyNode(slicer.mrmlScene)
+    itemIDToClone = shNode.GetItemByDataNode(inputNode)
+    clonedItemID = slicer.modules.subjecthierarchy.logic().CloneSubjectHierarchyItem(shNode, itemIDToClone)
+    clonedNode = shNode.GetItemDataNode(clonedItemID)
+    clonedNode.SetName(outputNodeName)
+    return clonedNode
+  
+  def calibratePalm(self):
+
+    self.calibrationInProgress = True
+    # self.onFrame()
+    try:
+      node = slicer.util.getNode('Hand1PalmPositionCalibration')
+      slicer.mrmlScene.RemoveNode(node)
+    except:
+      pass
+
+    try:
+      node = slicer.util.getNode('Hand1PalmOrientationCalibration')
+      slicer.mrmlScene.RemoveNode(node)
+    except:
+      pass
+
+    
+
+    compositedNode = slicer.util.getNode('Hand1PalmComposited')
+
+    position = slicer.util.getNode('Hand1PalmPosition')
+    positioncalibration = self.cloneNode(position, 'Hand1PalmPositionCalibration')  
+    positioncalibration.Inverse()
+    positioncalibration.SetAndObserveTransformNodeID(position.GetID())
+
+    orientation = slicer.util.getNode('Hand1PalmOrientation')
+    orientationcalibration = self.cloneNode(orientation, 'Hand1PalmOrientationCalibration')  
+    orientationcalibration.Inverse()
+    orientationcalibration.SetAndObserveTransformNodeID(orientation.GetID())
+
+    orientation.SetAndObserveTransformNodeID(positioncalibration.GetID())
+
+    compositedNode.SetAndObserveTransformNodeID(orientationcalibration.GetID())
+    self.calibrationInProgress = False
+    # self.onFrame()
+
+    
     
   
-  def getRotationFromDirection(self, direction, up=[0,-1,0]):
+  def getRotationFromDirection(self, direction, up=[0,0,1]):
     directionVector = vtk.vtkVector3d()
-    directionVector[0] = direction[1]
-    directionVector[1] = -direction[2]
-    directionVector[2] = -direction[0]
+    directionVector[0] = direction[0]
+    directionVector[1] = direction[1]
+    directionVector[2] = direction[2]
     directionVector.Normalize()
     upVector = vtk.vtkVector3d(up)
     upVector.Normalize()
@@ -242,7 +337,19 @@ class SlicerLeapModuleLogic(object):
 
     return matrix
 
+  def createPalmNormal(self, palm_normal):
+    try:
+      lineNode = slicer.util.getNode("PalmNormal")
+    except:
+          # Create the missing transform
+      lineNode = slicer.vtkMRMLMarkupsLineNode()
+      lineNode.SetName("PalmNormal")
+      slicer.mrmlScene.AddNode(lineNode)
+      print('Creating')
 
+    lineNode.RemoveAllControlPoints()
+    lineNode.AddControlPoint(vtk.vtkVector3d([0,0,0]))
+    lineNode.AddControlPoint(vtk.vtkVector3d([60 * palm_normal[0], 60 * -palm_normal[2], 60 * palm_normal[1]]))
   
   def onFrame(self):
     # Get the most recent frame
@@ -252,12 +359,12 @@ class SlicerLeapModuleLogic(object):
     for handIndex, hand in enumerate(frame.hands) :
       grab = False
       if hand.grab_strength > 0.8:
-        print("Grab")
         grab = True
       elif hand.pinch_strength > 0.8: 
-        print("Pinch") 
-      
-      self.setTransform(handIndex, -1, hand.palm_position, hand.palm_normal, grab) 
+        pass 
+      self.grabbed = grab
+      self.setTransform(handIndex, -1, hand.palm_position, hand.palm_normal) 
+      self.createPalmNormal(hand.palm_normal)
       
       
       # for fingerIndex, finger in enumerate(hand.fingers) :
@@ -268,16 +375,16 @@ class SlicerLeapModuleLogic(object):
     
     try:
       camera = slicer.util.getNode('Camera')
-      transform = slicer.util.getNode('Hand1Palm')
-      if self.palmControlOn and not self.cameraControllerAttaced:
+      transform = slicer.util.getNode('Hand1PalmComposited')
+      if self.palmControlOn and not self.cameraControllerAttached:
         print('Camera attached')        
         camera.SetAndObserveTransformNodeID(transform.GetID())
-        self.cameraControllerAttaced = True
+        self.cameraControllerAttached = True
 
-      if not self.palmControlOn and self.cameraControllerAttaced:
+      if not self.palmControlOn and self.cameraControllerAttached:
         camera.SetAndObserveTransformNodeID(None)
         print('Camera detached')
-        self.cameraControllerAttaced = False
+        self.cameraControllerAttached = False
 
       self.palmPresentInLastFrame = self.palmPresentInFrame
     except:

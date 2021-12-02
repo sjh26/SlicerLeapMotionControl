@@ -182,8 +182,10 @@ class SlicerLeapModuleLogic(object):
     self.palmControlOn = False  #slicer.modules.slicerleapmodule.widgetRepresentation().self().logic.palmControlOn = True
     self.onFrame()
     self.grabbed = False
+    self.pinched = False
     self.calibrated = False
     self.calibrationInProgress = False
+    self.previousPinchValue = 0
     print('Initialized Leap')
     
 
@@ -191,7 +193,7 @@ class SlicerLeapModuleLogic(object):
   def setEnableAutoCreateTransforms(self, enable):
     self.enableAutoCreateTransforms = enable
 
-  def setTransform(self, handIndex, fingerIndex, fingerTipPosition, direction):
+  def setTransform(self, handIndex, fingerIndex, fingerTipPosition, direction, pinch_distance):
     
     transformName = "Hand%iFinger%i" % (handIndex+1,fingerIndex+1) # +1 because to have 1-based indexes for the hands and fingers
     if fingerIndex == -1:
@@ -245,6 +247,13 @@ class SlicerLeapModuleLogic(object):
 
     matrix = self.getRotationFromDirection(direction)
     newTransformOrientation.SetMatrix(matrix)
+
+    
+
+    if self.pinched:
+      return
+
+    self.previousPinchValue = pinch_distance
 
     # grab both when calibration
     if self.calibrationInProgress:
@@ -358,11 +367,13 @@ class SlicerLeapModuleLogic(object):
 
     for handIndex, hand in enumerate(frame.hands) :
       grab = False
+      pinch = False
       if hand.grab_strength > 0.8:
         grab = True
       elif hand.pinch_strength > 0.8: 
-        pass 
+        pinch = True 
       self.grabbed = grab
+      self.pinched = pinch
       self.setTransform(handIndex, -1, hand.palm_position, hand.palm_normal) 
       self.createPalmNormal(hand.palm_normal)
       

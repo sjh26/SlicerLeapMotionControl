@@ -185,7 +185,7 @@ class SlicerLeapModuleLogic(object):
     self.pinched = False
     self.calibrated = False
     self.calibrationInProgress = False
-    self.previousPinchValue = 0
+    self.previousPinchValue = -1
     print('Initialized Leap')
     
 
@@ -193,7 +193,7 @@ class SlicerLeapModuleLogic(object):
   def setEnableAutoCreateTransforms(self, enable):
     self.enableAutoCreateTransforms = enable
 
-  def setTransform(self, handIndex, fingerIndex, fingerTipPosition, direction, pinch_distance):
+  def setTransform(self, handIndex, fingerIndex, fingerTipPosition, direction):
     
     transformName = "Hand%iFinger%i" % (handIndex+1,fingerIndex+1) # +1 because to have 1-based indexes for the hands and fingers
     if fingerIndex == -1:
@@ -253,7 +253,6 @@ class SlicerLeapModuleLogic(object):
     if self.pinched:
       return
 
-    self.previousPinchValue = pinch_distance
 
     # grab both when calibration
     if self.calibrationInProgress:
@@ -368,12 +367,14 @@ class SlicerLeapModuleLogic(object):
     for handIndex, hand in enumerate(frame.hands) :
       grab = False
       pinch = False
-      if hand.grab_strength > 0.8:
+      if hand.grab_strength > 0.9:
         grab = True
-      elif hand.pinch_strength > 0.8: 
+      elif hand.pinch_strength > 0.7: 
         pinch = True 
       self.grabbed = grab
       self.pinched = pinch
+      if self.pinched:
+            print(hand.pinch_distance)
       self.setTransform(handIndex, -1, hand.palm_position, hand.palm_normal) 
       self.createPalmNormal(hand.palm_normal)
       
@@ -396,6 +397,14 @@ class SlicerLeapModuleLogic(object):
         camera.SetAndObserveTransformNodeID(None)
         print('Camera detached')
         self.cameraControllerAttached = False
+
+      if self.pinched and self.palmControlOn:
+        if self.previousPinchValue != -1:
+              if self.previousPinchValue > hand.pinch_distance:
+                camera.GetCamera().Zoom(0.90)
+              else:
+                camera.GetCamera().Zoom(1.2)   
+        self.previousPinchValue = hand.pinch_distance
 
       self.palmPresentInLastFrame = self.palmPresentInFrame
     except:
